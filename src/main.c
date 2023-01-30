@@ -141,3 +141,5 @@ void main(void)
 	// TODO
 	//  net_mgmt_event_wait
 }
+
+// my comment

@@ -5,7 +5,6 @@
  */
 
 #include <zephyr/logging/log.h>
-
 LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 
 #include <zephyr/kernel.h>
@@ -39,7 +38,8 @@ const struct device *const wifi_drv_0 = DEVICE_DT_GET(WIFI_NODE);
 
 static struct net_mgmt_event_callback wifi_shell_mgmt_cb;
 static struct net_mgmt_event_callback  mgmt_if_cb;
-static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb)
+
+static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb, struct net_if *iface)
 {
 	const struct wifi_status *status = (const struct wifi_status *)cb->info;
 
@@ -47,6 +47,8 @@ static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb)
 		LOG_ERR("Connection request failed (%d)", status->status);
 	} else {
 		LOG_INF("WIFI Connected");
+		net_dhcpv4_start(iface);
+		LOG_INF("Dhcp started");
 	}
 }
 
@@ -55,7 +57,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t
 {
 	switch (mgmt_event) {
 	case NET_EVENT_WIFI_CONNECT_RESULT:
-		handle_wifi_connect_result(cb);
+		handle_wifi_connect_result(cb, iface);
 		break;
 	default:
 		break;

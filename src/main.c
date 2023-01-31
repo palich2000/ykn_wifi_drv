@@ -52,12 +52,28 @@ static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb, struc
 	}
 }
 
+static void handle_wifi_disconnect_result(struct net_mgmt_event_callback *cb, struct net_if *iface)
+{
+	const struct wifi_status *status = (const struct wifi_status *)cb->info;
+
+	if (status->status) {
+		LOG_ERR("Disconnection request failed (%d)", status->status);
+	} else {
+		LOG_INF("WIFI Disconnected");
+		net_dhcpv4_stop(iface);
+		LOG_INF("Dhcp stopped");
+	}
+}
+
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
 				    struct net_if *iface)
 {
 	switch (mgmt_event) {
 	case NET_EVENT_WIFI_CONNECT_RESULT:
 		handle_wifi_connect_result(cb, iface);
+		break;
+	case NET_EVENT_WIFI_CMD_DISCONNECT_RESULT:
+		handle_wifi_disconnect_result(cb, iface);
 		break;
 	default:
 		break;
@@ -102,7 +118,7 @@ void main(void)
 	iface = net_if_lookup_by_dev(wifi_drv_0);
 
 	net_mgmt_init_event_callback(&wifi_shell_mgmt_cb, wifi_mgmt_event_handler,
-				     NET_EVENT_WIFI_CONNECT_RESULT);
+				     NET_EVENT_WIFI_CONNECT_RESULT|NET_EVENT_WIFI_DISCONNECT_RESULT);
 
 	net_mgmt_add_event_callback(&wifi_shell_mgmt_cb);
 

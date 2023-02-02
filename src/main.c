@@ -8,8 +8,8 @@
 LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
+//#include <zephyr/device.h>
+//#include <zephyr/devicetree.h>
 
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/net_if.h>
@@ -31,8 +31,8 @@ LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 // sl_wfx_context_t   wifi;
 
 // #define WIFI_NODE DT_NODELABEL(wifi)
-#define WIFI_NODE DT_ALIAS(wifi0)
-const struct device *const wifi_drv_0 = DEVICE_DT_GET(WIFI_NODE);
+//#define WIFI_NODE DT_ALIAS(wifi0)
+//const struct device *const wifi_drv_0 = DEVICE_DT_GET(WIFI_NODE);
 
 // extern void gpio_setup(void);
 
@@ -83,17 +83,18 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t
 static void my_if_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
 				     struct net_if *iface)
 {
+	int a;
 	LOG_INF("[%s]Event %s 0x%X", __FUNCTION__, iface->if_dev->dev->name, mgmt_event);
 	switch (mgmt_event) {
 	case NET_EVENT_IF_ADMIN_UP:
 	case NET_EVENT_IF_UP:
 		LOG_INF("Interface up %s", iface->if_dev->dev->name);
-		net_dhcpv4_start(iface);
+		//net_dhcpv4_start(iface);
 		break;
 	case NET_EVENT_IF_ADMIN_DOWN:
 	case NET_EVENT_IF_DOWN:
 		LOG_INF("Interface down %s", iface->if_dev->dev->name);
-		net_dhcpv4_stop(iface);
+		//net_dhcpv4_stop(iface);
 		break;
 	default:
 		break;
@@ -102,20 +103,20 @@ static void my_if_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_
 
 void main(void)
 {
-	struct net_if *iface = net_if_get_default();
+//	struct net_if *iface = net_if_get_default();
 
 	LOG_INF("--- start ");
 
-	if (!device_is_ready(wifi_drv_0)) {
-		LOG_ERR("wfm200 devices not ready");
-		return;
-	}
-	LOG_INF("wfm200 devices ready");
+//	if (!device_is_ready(wifi_drv_0)) {
+//		LOG_ERR("wfm200 devices not ready");
+//		return;
+//	}
+//	LOG_INF("wfm200 devices ready");
 	// k_sem_take(&wfx_init_sem,K_FOREVER);
 
-	LOG_INF("device name = %s\n", wifi_drv_0->name);
-
-	iface = net_if_lookup_by_dev(wifi_drv_0);
+//	LOG_INF("device name = %s\n", wifi_drv_0->name);
+//
+//	iface = net_if_lookup_by_dev(wifi_drv_0);
 
 	net_mgmt_init_event_callback(&wifi_shell_mgmt_cb, wifi_mgmt_event_handler,
 				     NET_EVENT_WIFI_CONNECT_RESULT|NET_EVENT_WIFI_DISCONNECT_RESULT);

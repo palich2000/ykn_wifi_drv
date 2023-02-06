@@ -118,9 +118,13 @@ void main(void)
 //
 //	iface = net_if_lookup_by_dev(wifi_drv_0);
 
+	struct net_if * iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
+	if (iface) {
+		net_dhcpv4_start(iface);
+	}
+
 	net_mgmt_init_event_callback(&wifi_shell_mgmt_cb, wifi_mgmt_event_handler,
 				     NET_EVENT_WIFI_CONNECT_RESULT|NET_EVENT_WIFI_DISCONNECT_RESULT);
-
 	net_mgmt_add_event_callback(&wifi_shell_mgmt_cb);
 
 	net_mgmt_init_event_callback(&mgmt_if_cb, my_if_mgmt_event_handler, _NET_EVENT_IF_BASE);

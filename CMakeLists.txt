@@ -33,15 +33,3 @@ target_include_directories(app PRIVATE
 
 
 target_sources(app PRIVATE ${pktqueue_sources})
-
-set(CFLAGS
-    "-Wno-frame-address"
-    "-Wall"
-    "-Wextra"
-    "-W"
-    "-Wdeclaration-after-statement"
-    "-Wwrite-strings"
-    "-Wlogical-op"
-    "-Wshadow"
-    "-Werror=all"
-)

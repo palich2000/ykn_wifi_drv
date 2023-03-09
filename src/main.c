@@ -7,8 +7,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 
-#include <zephyr/kernel.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/timing/timing.h>
@@ -26,7 +29,7 @@ LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 #pragma GCC diagnostic error "-Wextra"
 #pragma GCC diagnostic error "-Wunused"
 
-static struct net_mgmt_event_callback wifi_shell_mgmt_cb;
+static struct net_mgmt_event_callback wifi_mgmt_cb;
 static struct net_mgmt_event_callback  mgmt_if_cb;
 
 static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb, struct net_if *iface)
@@ -37,6 +40,7 @@ static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb, struc
 		LOG_ERR("Connection request failed (%d)", status->status);
 	} else {
 		LOG_INF("WIFI Connected");
+		net_if_carrier_on(iface);
 		net_dhcpv4_start(iface);
 		LOG_INF("Dhcp started");
 	}
@@ -51,6 +55,8 @@ static void handle_wifi_disconnect_result(struct net_mgmt_event_callback *cb, st
 	} else {
 		LOG_INF("WIFI Disconnected");
 		net_dhcpv4_stop(iface);
+		net_if_config_ipv4_put(iface);
+		net_if_carrier_off(iface);
 		LOG_INF("Dhcp stopped");
 	}
 }
@@ -62,7 +68,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t
 	case NET_EVENT_WIFI_CONNECT_RESULT:
 		handle_wifi_connect_result(cb, iface);
 		break;
-	case NET_EVENT_WIFI_CMD_DISCONNECT_RESULT:
+	case NET_EVENT_WIFI_DISCONNECT_RESULT:
 		handle_wifi_disconnect_result(cb, iface);
 		break;
 	default:
@@ -73,24 +79,41 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t
 static void my_if_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
 				     struct net_if *iface)
 {
-	//int a;
 	ARG_UNUSED(cb);
 	ARG_UNUSED(iface);
-	LOG_INF("[%s]Event %s 0x%X", __FUNCTION__, iface->if_dev->dev->name, mgmt_event);
+	LOG_INF("[%s]Event interface:%s event:0x%X", __FUNCTION__, iface->if_dev->dev->name, mgmt_event);
 	switch (mgmt_event) {
 	case NET_EVENT_IF_ADMIN_UP:
 	case NET_EVENT_IF_UP:
 		LOG_INF("Interface up %s", iface->if_dev->dev->name);
-		//net_dhcpv4_start(iface);
 		break;
 	case NET_EVENT_IF_ADMIN_DOWN:
 	case NET_EVENT_IF_DOWN:
 		LOG_INF("Interface down %s", iface->if_dev->dev->name);
-		//net_dhcpv4_stop(iface);
 		break;
 	default:
 		break;
 	}
+}
+
+#define PR(fmt, ...)						\
+	shell_fprintf(sh, SHELL_NORMAL, fmt, ##__VA_ARGS__)
+
+static int cmd_test_iface_put(const struct shell *sh, size_t argc, char *argv[]){
+	ARG_UNUSED(sh);
+	PR("argc=%d\n", argc);
+ if (argc==2) {
+		int if_index = atoi(argv[1]);
+		struct net_if * iface = net_if_get_by_index(if_index);
+		if (net_if_config_ipv4_put(iface)!=0){
+			PR("net_if_config_ipv4_put failed\n");
+		} else {
+			PR("net_if_config_ipv4_put ok\n");
+			net_dhcpv4_stop(iface);
+			memset(&iface->config.dhcpv4,0, sizeof(iface->config.dhcpv4));
+		}
+ }
+ return 0;
 }
 
 static int cmd_test_ccm(const struct shell *sh, size_t argc, char *argv[])
@@ -150,22 +173,25 @@ static int cmd_test_ccm(const struct shell *sh, size_t argc, char *argv[])
 
 SHELL_STATIC_SUBCMD_SET_CREATE(test_commands,
 	SHELL_CMD(ccm, NULL, "Test ccm alg",cmd_test_ccm),
+			       SHELL_CMD(iput, NULL, "Test iface_put",cmd_test_iface_put),
 	SHELL_SUBCMD_SET_END
 );
 
 SHELL_CMD_REGISTER(test, &test_commands, "Testing commands", NULL);
 
+#define WIFI_MGMT_EVENTS (NET_EVENT_WIFI_SCAN_RESULT |		\
+				NET_EVENT_WIFI_SCAN_DONE |		\
+				NET_EVENT_WIFI_CONNECT_RESULT |		\
+				NET_EVENT_WIFI_DISCONNECT_RESULT |  \
+				NET_EVENT_WIFI_TWT)
+
 void main(void)
 {
 	LOG_INF("********************************** --- start ***********************************");
-	struct net_if * iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
-	if (iface) {
-		net_dhcpv4_start(iface);
-	}
 
-	net_mgmt_init_event_callback(&wifi_shell_mgmt_cb, wifi_mgmt_event_handler,
-				     NET_EVENT_WIFI_CONNECT_RESULT|NET_EVENT_WIFI_DISCONNECT_RESULT);
-	net_mgmt_add_event_callback(&wifi_shell_mgmt_cb);
+	net_mgmt_init_event_callback(&wifi_mgmt_cb, wifi_mgmt_event_handler,
+				     _NET_WIFI_EVENT);
+	net_mgmt_add_event_callback(&wifi_mgmt_cb);
 
 	net_mgmt_init_event_callback(&mgmt_if_cb, my_if_mgmt_event_handler, _NET_EVENT_IF_BASE);
 	net_mgmt_add_event_callback(&mgmt_if_cb);

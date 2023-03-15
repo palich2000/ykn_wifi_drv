@@ -23,6 +23,8 @@ LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 #include <mbedtls/md.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/ccm.h>
+#include "arpa/inet.h"
+#include "dhcpserver.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic error "-Wall"
@@ -86,10 +88,48 @@ static void my_if_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint32_
 	case NET_EVENT_IF_ADMIN_UP:
 	case NET_EVENT_IF_UP:
 		LOG_INF("Interface up %s", iface->if_dev->dev->name);
+		if (strstr(iface->if_dev->dev->name,"eth@") == iface->if_dev->dev->name) {
+			//LOG_INF("dhcp4client for %s started", iface->if_dev->dev->name);
+			//net_dhcpv4_start(iface);
+			if (net_if_config_ipv4_put(iface) ) {
+				LOG_ERR("net_if_config_ipv4_put error");
+			}
+
+			memset(&iface->config.dhcpv4,0,sizeof(iface->config.dhcpv4));
+			if (iface->config.ip.ipv4) {
+				memset(&iface->config.ip.ipv4->gw, 0, sizeof(iface->config.ip.ipv4->gw));
+			}
+
+
+			struct in_addr addr;
+			if (net_addr_pton(AF_INET, "192.168.2.1", &addr)) {
+				LOG_ERR("Invalid address: %s", "192.168.2.1");
+				return;
+			}
+
+			if (net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0)==NULL){
+				LOG_ERR("net_if_ipv4_addr_add failed");
+				return;
+			}
+
+			if (net_addr_pton(AF_INET, "255.255.255.0", &addr)) {
+				LOG_ERR("Invalid netmask: %s", "255.255.255.0");
+				return;
+			}
+
+			net_if_ipv4_set_netmask(iface, &addr);
+
+			dhcpd4_start(iface);
+		}
 		break;
 	case NET_EVENT_IF_ADMIN_DOWN:
 	case NET_EVENT_IF_DOWN:
 		LOG_INF("Interface down %s", iface->if_dev->dev->name);
+		if (strstr(iface->if_dev->dev->name,"eth@") == iface->if_dev->dev->name) {
+			LOG_INF("dhcp4client for %s stopped", iface->if_dev->dev->name);
+			//net_dhcpv4_stop(iface);
+			dhcpd4_stop(iface);
+		}
 		break;
 	default:
 		break;
@@ -171,9 +211,29 @@ static int cmd_test_ccm(const struct shell *sh, size_t argc, char *argv[])
 	return 0;
 }
 
+extern void arp_update(struct net_if *iface,
+		struct in_addr *src,
+		struct net_eth_addr *hwaddr,
+		bool gratuitous,
+		bool force);
+
+static int cmd_test_arp(const struct shell *sh, size_t argc, char *argv[])
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	struct net_if * iface = net_if_get_default();
+	struct in_addr ip_addr;
+	inet_pton(AF_INET,"192.168.2.2", &ip_addr);
+	struct net_eth_addr mac_addr={.addr={0,1,2,3,4,5}};
+	arp_update(iface,&ip_addr, &mac_addr,false,true);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(test_commands,
 	SHELL_CMD(ccm, NULL, "Test ccm alg",cmd_test_ccm),
 			       SHELL_CMD(iput, NULL, "Test iface_put",cmd_test_iface_put),
+			       SHELL_CMD(arp, NULL, "Test arp_update",cmd_test_arp),
 	SHELL_SUBCMD_SET_END
 );
 

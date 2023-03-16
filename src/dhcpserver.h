@@ -37,7 +37,7 @@ struct address_pool {
 };
 
 typedef struct address_pool address_pool;
-address_pool *get_pool(void);
+address_pool *dhcpd4_get_pool(void);
 /*
  * Internal representation of a DHCP message,
  * with options parsed into a list...

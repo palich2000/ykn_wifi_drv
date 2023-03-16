@@ -9,18 +9,18 @@
 #define ZEPHYR_DHCPMEM_H
 #include <stddef.h>
 
-void *dhcp4_malloc(size_t size);
-void *dhcp4_calloc(size_t nmemb, size_t size);
+void *dhcpd4_malloc(size_t size);
+void *dhcpd4_calloc(size_t nmemb, size_t size);
 
-#define dhcp4_free(buffer) \
+#define dhcpd4_free(buffer) \
 	while(true) {           \
         if (buffer) {    \
-		_dhcp4_free(buffer);     \
+		_dhcpd4_free(buffer);     \
 		(buffer)=NULL;}                 \
         break;                 \
 	}
 
-void _dhcp4_free(void * ptr);
-char *dhcp4_strdup(const char *str);
+void _dhcpd4_free(void * ptr);
+char *dhcpd4_strdup(const char *str);
 
 #endif // ZEPHYR_DHCPMEM_H

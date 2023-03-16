@@ -22,6 +22,14 @@ LOG_MODULE_REGISTER(dhcp4server, LOG_LEVEL_DBG);
 #include "arpa/inet.h"
 #include "zephyr/net/ethernet.h"
 #include "dhcpmem.h"
+#include <zephyr/net/net_core.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
+
+#define DHCPV4_SERVER_PORT	67
+#define DHCPV4_CLIENT_PORT	68
+
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic error "-Wall"
@@ -29,13 +37,23 @@ LOG_MODULE_REGISTER(dhcp4server, LOG_LEVEL_DBG);
 #pragma GCC diagnostic error "-Wunused"
 #pragma GCC diagnostic error "-Wint-conversion"
 #pragma GCC diagnostic error "-Wincompatible-pointer-types"
+
+extern int net_ipv4_create(struct net_pkt *pkt,
+		    const struct in_addr *src,
+		    const struct in_addr *dst);
+
+extern int net_udp_create(struct net_pkt *pkt, uint16_t src_port, uint16_t dst_port);
+
+extern int net_ipv4_finalize(struct net_pkt *pkt, uint8_t next_header_proto);
+
+
 /*
  * Global pool
  */
 
-static address_pool pool;
-address_pool *get_pool(void) {
-	return &pool;
+static address_pool dhcpd4_pool;
+address_pool *dhcpd4_get_pool(void) {
+	return &dhcpd4_pool;
 }
 /*
  * Helper functions
@@ -60,7 +78,7 @@ str_mac (uint8_t *mac)
     return str;
 }
 
-char *
+static char *
 str_status (int status)
 {
     switch(status) {
@@ -79,7 +97,7 @@ str_status (int status)
     }
 }
 
-struct net_pkt *dhcpdv4_create_message(struct net_if *iface,
+static struct net_pkt *dhcpd4_create_message(struct net_if *iface,
 				       const struct in_addr *src,
 				       const struct in_addr *dst,
 				       uint8_t * data,
@@ -89,127 +107,31 @@ struct net_pkt *dhcpdv4_create_message(struct net_if *iface,
  * Network related routines
  */
 
-extern void arp_update(struct net_if *iface,
-		       struct in_addr *src,
-		       struct net_eth_addr *hwaddr,
-		       bool gratuitous,
-		       bool force);
-
-void
-add_arp_entry (int s, uint8_t *mac, uint32_t ip) //TODO
+static int dhcpd4_send_dhcp_reply(dhcpd_msg *reply)
 {
-    ARG_UNUSED(s);
-    ARG_UNUSED(mac);
-    ARG_UNUSED(ip);
 
-    struct net_if * iface = net_if_get_default();
-    struct in_addr ip_addr;
-    //inet_pton(AF_INET,"192.168.2.2", &ip_addr);
-    struct net_eth_addr mac_addr;
-    memmove(mac_addr.addr,mac,sizeof(mac_addr.addr));
-    ip_addr.s_addr=ip;
-    LOG_INF("arp add entry: %s %s",str_ip(ip), str_mac(mac));
-    arp_update(iface,&ip_addr, &mac_addr,false,true);
-
-    //    struct arpreq ar;
-//    struct sockaddr_in *sock;
-//
-//    memset(&ar, 0, sizeof(ar));
-//
-//    /* add a proxy ARP entry for given pair */
-//
-//    sock = (struct sockaddr_in *) &ar.arp_pa;
-//    sock->sin_family = AF_INET;
-//    sock->sin_addr.s_addr = ip;
-//
-//    memcpy(ar.arp_ha.sa_data, mac, 6);
-//    ar.arp_flags = ATF_COM; //(ATF_PUBL | ATF_COM);
-//
-//    strncpy(ar.arp_dev, pool.device, sizeof(ar.arp_dev));
-//
-//    if (ioctl(s, SIOCSARP, (char *) &ar) < 0)  {
-//	perror("error adding entry to arp table");
-//    };
-}
-
-void
-delete_arp_entry (int s, uint8_t *mac, uint32_t ip) //TODO
-{
-    ARG_UNUSED(s);
-    ARG_UNUSED(mac);
-    ARG_UNUSED(ip);
-//    struct arpreq ar;
-//    struct sockaddr_in *sock;
-//
-//    memset(&ar, 0, sizeof(ar));
-//
-//    sock = (struct sockaddr_in *) &ar.arp_pa;
-//    sock->sin_family = AF_INET;
-//    sock->sin_addr.s_addr = ip;
-//
-//    strncpy(ar.arp_dev, pool.device, sizeof(ar.arp_dev));
-//
-//    if(ioctl(s, SIOCGARP, (char *) &ar) < 0)  {
-//	if (errno != ENXIO) {
-//	    perror("error getting arp entry");
-//	    return;
-//	}
-//    };
-//
-//    if(ip == 0 || memcmp(mac, ar.arp_ha.sa_data, 6) == 0) {
-//	if(ioctl(s, SIOCDARP, (char *) &ar) < 0) {
-//	    perror("error removing arp table entry");
-//	}
-//    }
-}
-
-int
-send_dhcp_reply	(int s, struct sockaddr_in *client_sock, dhcpd_msg *reply)
-{
-    ARG_UNUSED(s);
-    ARG_UNUSED(client_sock);
-
-     size_t len = serialize_option_list(&reply->opts, reply->hdr.options,
-				sizeof(reply->hdr) - DHCP_HEADER_SIZE);
+    size_t len = dhcpd4_serialize_option_list(&reply->opts, reply->hdr.options,
+					      sizeof(reply->hdr) - DHCP_HEADER_SIZE);
 
     len += DHCP_HEADER_SIZE;
-
-//    int broadcast = 1;
-//    if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
-//	LOG_ERR("setsockopt");
-//	return -1;
-//    }
-//    inet_pton(AF_INET, "255.255.255.255", &client_sock->sin_addr.s_addr);
-//    //client_sock->sin_addr.s_addr = reply->hdr.yiaddr; // use the address assigned by us
-//
-//    if(reply->hdr.yiaddr != 0) {
-//	add_arp_entry(s, reply->hdr.chaddr, reply->hdr.yiaddr);
-//    }
-//
-//    if ((ret = sendto(s, reply, len, 0, (struct sockaddr *)client_sock, sizeof(*client_sock))) < 0) {
-//	LOG_ERR("sendto failed");
-//	return -1;
-//    }
-
-    struct net_if * iface = net_if_get_by_index(pool.device_index);
+    address_pool *dhcpd4_addr_pool = dhcpd4_get_pool();
+    struct net_if *iface = net_if_get_by_index(dhcpd4_addr_pool->device_index);
     if (iface) {
-	//iface->config.dhcpv4.xid++;
-	struct in_addr src = iface->config.ip.ipv4->unicast[0].address.in_addr;
-	struct net_pkt *pkt =
-		dhcpdv4_create_message(iface, &src, net_ipv4_broadcast_address(), (uint8_t*)reply, len);
-	if (!pkt) {
-		goto fail;
-	}
+        struct in_addr src = iface->config.ip.ipv4->unicast[0].address.in_addr;
+        struct net_pkt *pkt = dhcpd4_create_message(iface, &src, net_ipv4_broadcast_address(),
+                                (uint8_t *)reply, len);
+        if (!pkt) {
+            goto fail;
+        }
 
-	if (net_send_data(pkt) < 0) {
-		goto fail;
-	} else {
-		printk("dhcpd4 packet sent, size=%u\n", len);
-	}
-
-	return 0;
+        if (net_send_data(pkt) < 0) {
+            goto fail;
+        } else {
+            //printk("dhcpd4 packet sent, size=%u\n", len);
+        }
+        return 0;
     } else {
-	LOG_ERR("Invalid interface index %d", pool.device_index);
+	    LOG_ERR("Invalid interface index %d", dhcpd4_addr_pool->device_index);
     }
 fail:
     return -1;
@@ -219,19 +141,18 @@ fail:
  * Message handling routines.
  */
 
-uint8_t
-expand_request (dhcpd_msg *request, size_t len)
+static uint8_t dhcpd4_expand_request(dhcpd_msg *request, size_t len)
 {
-    init_option_list(&request->opts);
+    dhcpd4_init_option_list(&request->opts);
     
     if (request->hdr.hlen < 1 || request->hdr.hlen > 16)
 	return 0;
 
-    if(parse_options_to_list(&request->opts, (dhcp_option *)request->hdr.options,
-			     len - DHCP_HEADER_SIZE) == 0)
+    if(dhcpd4_parse_options_to_list(&request->opts, (dhcp_option *)request->hdr.options,
+				     len - DHCP_HEADER_SIZE) == 0)
 	return 0;
     
-    dhcp_option *type_opt = search_option(&request->opts, DHCP_MESSAGE_TYPE);
+    dhcp_option *type_opt = dhcpd4_search_option(&request->opts, DHCP_MESSAGE_TYPE);
     
     if (type_opt == NULL)
 	return 0;
@@ -241,12 +162,11 @@ expand_request (dhcpd_msg *request, size_t len)
     return type;
 }
 
-int
-init_reply (dhcpd_msg *request, dhcpd_msg *reply)
+static int dhcpd4_init_reply(dhcpd_msg *request, dhcpd_msg *reply)
 {
     memset(&reply->hdr, 0, sizeof(reply->hdr));
 
-    init_option_list(&reply->opts);
+    dhcpd4_init_option_list(&reply->opts);
     
     reply->hdr.op = BOOTREPLY;
 
@@ -263,60 +183,58 @@ init_reply (dhcpd_msg *request, dhcpd_msg *reply)
     return 1;
 }
 
-void
-fill_requested_dhcp_options (dhcp_option *requested_opts, dhcp_option_list *reply_opts)
+static void dhcpd4_fill_requested_dhcp_options(dhcp_option *requested_opts, dhcp_option_list *reply_opts)
 {
     uint8_t len = requested_opts->len;
     uint8_t *id = requested_opts->data;
-
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
     int i;
     for (i = 0; i < len; i++) {
 	    
 	if(id[i] != 0) {
-	    dhcp_option *opt = search_option(&pool.options, id[i]);
+	    dhcp_option *opt = dhcpd4_search_option(&dhcpd4_addr_pool->options, id[i]);
 
 	    if(opt != NULL)
-		append_option(reply_opts, opt);
+		    dhcpd4_append_option(reply_opts, opt);
 	}
 	    
     }
 }
 
-int
-fill_dhcp_reply (dhcpd_msg *request, dhcpd_msg *reply,
+static int dhcpd4_fill_dhcp_reply(dhcpd_msg *request, dhcpd_msg *reply,
 		 address_binding *binding, uint8_t type)
 {
     static dhcp_option type_opt, server_id_opt;
-
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
     type_opt.id = DHCP_MESSAGE_TYPE;
     type_opt.len = 1;
     type_opt.data[0] = type;
-    append_option(&reply->opts, &type_opt);
+    dhcpd4_append_option(&reply->opts, &type_opt);
 
     server_id_opt.id = SERVER_IDENTIFIER;
     server_id_opt.len = 4;
-    memcpy(server_id_opt.data, &pool.server_id, sizeof(pool.server_id));
-    append_option(&reply->opts, &server_id_opt);
+    memcpy(server_id_opt.data, &dhcpd4_addr_pool->server_id, sizeof(dhcpd4_addr_pool->server_id));
+    dhcpd4_append_option(&reply->opts, &server_id_opt);
     
     if(binding != NULL) {
 	reply->hdr.yiaddr = binding->address;
     }
     
     if (type != DHCP_NAK) {
-	dhcp_option *requested_opts = search_option(&request->opts, PARAMETER_REQUEST_LIST);
+	dhcp_option *requested_opts = dhcpd4_search_option(&request->opts, PARAMETER_REQUEST_LIST);
 
 	if (requested_opts)
-	    fill_requested_dhcp_options(requested_opts, &reply->opts);
+	    dhcpd4_fill_requested_dhcp_options(requested_opts, &reply->opts);
     }
     
     return type;
 }
 
-int
-serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
-{  
-    address_binding *binding = search_binding(&pool.bindings, request->hdr.chaddr,
-					      request->hdr.hlen, STATIC, B_EMPTY);
+static int dhcpd4_serve_dhcp_discover(dhcpd_msg *request, dhcpd_msg *reply)
+{
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
+    address_binding *binding = dhcpd4_search_binding(&dhcpd4_addr_pool->bindings, request->hdr.chaddr,
+						     request->hdr.hlen, STATIC, B_EMPTY);
 
     if (binding) { // a static binding has been configured for this client
 
@@ -328,10 +246,10 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
         if (binding->binding_time + binding->lease_time < time(NULL)) {
 	    binding->status = PENDING;
 	    binding->binding_time = time(NULL);
-	    binding->lease_time = pool.pending_time;
+	    binding->lease_time = dhcpd4_addr_pool->pending_time;
 	}
             
-        return fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
+        return dhcpd4_fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
 
     }
 
@@ -340,8 +258,8 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
         /* If an address is available, the new address
            SHOULD be chosen as follows: */
 
-	binding = search_binding(&pool.bindings, request->hdr.chaddr,
-				 request->hdr.hlen, DYNAMIC, B_EMPTY);
+	binding = dhcpd4_search_binding(&dhcpd4_addr_pool->bindings, request->hdr.chaddr, request->hdr.hlen,
+					DYNAMIC, B_EMPTY);
 
         if (binding) {
 
@@ -360,10 +278,10 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
 	    if (binding->binding_time + binding->lease_time < time(NULL)) {
 		binding->status = PENDING;
 		binding->binding_time = time(NULL);
-		binding->lease_time = pool.pending_time;
+		binding->lease_time = dhcpd4_addr_pool->pending_time;
 	    }
 	    
-            return fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
+            return dhcpd4_fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
 
         } else {
 
@@ -377,14 +295,13 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
 
 	    // TODO: extract requested IP address
 	    uint32_t address = 0;
-	    dhcp_option *address_opt =
-		search_option(&request->opts, REQUESTED_IP_ADDRESS);
+	    dhcp_option *address_opt = dhcpd4_search_option(&request->opts, REQUESTED_IP_ADDRESS);
 
 	    if(address_opt != NULL)
 		memcpy(&address, address_opt->data, sizeof(address));
 	    
-	    binding = new_dynamic_binding(&pool.bindings, &pool.indexes, address,
-					  request->hdr.chaddr, request->hdr.hlen);
+	    binding = dhcpd4_new_dynamic_binding(&dhcpd4_addr_pool->bindings, &dhcpd4_addr_pool->indexes, address,
+						 request->hdr.chaddr, request->hdr.hlen);
 
 	    if (binding == NULL) {
 		log_info("Can not offer an address to %s, no address available.",
@@ -401,10 +318,10 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
 	    if (binding->binding_time + binding->lease_time < time(NULL)) {
 		binding->status = PENDING;
 		binding->binding_time = time(NULL);
-		binding->lease_time = pool.pending_time;
+		binding->lease_time = dhcpd4_addr_pool->pending_time;
 	    }
 
-	    return fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
+	    return dhcpd4_fill_dhcp_reply(request, reply, binding, DHCP_OFFER);
 	}
 
     }
@@ -412,19 +329,19 @@ serve_dhcp_discover (dhcpd_msg *request, dhcpd_msg *reply)
     // should NOT reach here...
 }
 
-int
-serve_dhcp_request (dhcpd_msg *request, dhcpd_msg *reply)
+static int dhcpd4_serve_dhcp_request(dhcpd_msg *request, dhcpd_msg *reply)
 {
-    address_binding *binding = search_binding(&pool.bindings, request->hdr.chaddr,
-					      request->hdr.hlen, STATIC_OR_DYNAMIC, PENDING);
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
+    address_binding *binding = dhcpd4_search_binding(&dhcpd4_addr_pool->bindings, request->hdr.chaddr,
+						     request->hdr.hlen, STATIC_OR_DYNAMIC, PENDING);
 
     uint32_t server_id = 0;
-    dhcp_option *server_id_opt = search_option(&request->opts, SERVER_IDENTIFIER);
+    dhcp_option *server_id_opt = dhcpd4_search_option(&request->opts, SERVER_IDENTIFIER);
 
     if(server_id_opt != NULL)
 	memcpy(&server_id, server_id_opt->data, sizeof(server_id));
     
-    if (server_id == pool.server_id) { // this request is an answer to our offer
+    if (server_id == dhcpd4_addr_pool->server_id) { // this request is an answer to our offer
 
 	if (binding != NULL) {
 
@@ -432,16 +349,16 @@ serve_dhcp_request (dhcpd_msg *request, dhcpd_msg *reply)
 		     str_ip(binding->address), str_mac(request->hdr.chaddr));
 
 	    binding->status = ASSOCIATED;
-	    binding->lease_time = pool.lease_time;
+	    binding->lease_time = dhcpd4_addr_pool->lease_time;
 	    
-	    return fill_dhcp_reply(request, reply, binding, DHCP_ACK);
+	    return dhcpd4_fill_dhcp_reply(request, reply, binding, DHCP_ACK);
 	
 	} else {
 
 	    log_info("Nak to %s, not associated",
 		     str_mac(request->hdr.chaddr));
 		    
-	    return fill_dhcp_reply(request, reply, NULL, DHCP_NAK);
+	    return dhcpd4_fill_dhcp_reply(request, reply, NULL, DHCP_NAK);
 	}
 
     } else if (server_id != 0) { // answer to the offer of another server
@@ -460,12 +377,12 @@ serve_dhcp_request (dhcpd_msg *request, dhcpd_msg *reply)
     return 0;
 }
 
-int
-serve_dhcp_decline (dhcpd_msg *request, dhcpd_msg *reply)
+static int dhcpd4_serve_dhcp_decline(dhcpd_msg *request, dhcpd_msg *reply)
 {
     ARG_UNUSED(reply);
-    address_binding *binding = search_binding(&pool.bindings, request->hdr.chaddr,
-					      request->hdr.hlen, STATIC_OR_DYNAMIC, PENDING);
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
+    address_binding *binding = dhcpd4_search_binding(&dhcpd4_addr_pool->bindings, request->hdr.chaddr,
+						     request->hdr.hlen, STATIC_OR_DYNAMIC, PENDING);
 
     if(binding != NULL) {
 	log_info("Declined %s by %s",
@@ -477,12 +394,12 @@ serve_dhcp_decline (dhcpd_msg *request, dhcpd_msg *reply)
     return 0;
 }
 
-int
-serve_dhcp_release (dhcpd_msg *request, dhcpd_msg *reply)
+static int dhcpd4_serve_dhcp_release(dhcpd_msg *request, dhcpd_msg *reply)
 {
     ARG_UNUSED(reply);
-    address_binding *binding = search_binding(&pool.bindings, request->hdr.chaddr,
-					      request->hdr.hlen, STATIC_OR_DYNAMIC, ASSOCIATED);
+    address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
+    address_binding *binding = dhcpd4_search_binding(
+	    &dhcpd4_addr_pool->bindings, request->hdr.chaddr, request->hdr.hlen, STATIC_OR_DYNAMIC, ASSOCIATED);
 
     if(binding != NULL) {
 	log_info("Released %s by %s",
@@ -494,119 +411,100 @@ serve_dhcp_release (dhcpd_msg *request, dhcpd_msg *reply)
     return 0;
 }
 
-int
-serve_dhcp_inform (dhcpd_msg *request, dhcpd_msg *reply)
+static int dhcpd4_serve_dhcp_inform(dhcpd_msg *request, dhcpd_msg *reply)
 {
     log_info("Info to %s", str_mac(request->hdr.chaddr));
-    return fill_dhcp_reply(request, reply, NULL, DHCP_ACK);
+    return dhcpd4_fill_dhcp_reply(request, reply, NULL, DHCP_ACK);
 }
 
 /*
  * Dispatch client DHCP messages to the correct handling routines
  */
 
-void
-message_dispatcher (int s, bool * stop)
+static void dhcpd4_message_dispatcher(int s, bool * stop)
 {
     if (!stop)
 	return ;
 
     while (!(*stop)) {
-	struct sockaddr_in client_sock;
-	socklen_t slen = sizeof(client_sock);
-	size_t len;
+        struct sockaddr_in client_sock;
+        socklen_t slen = sizeof(client_sock);
+        size_t len;
 
-	dhcpd_msg request;
-	dhcpd_msg reply;
+        dhcpd_msg request;
+        dhcpd_msg reply;
 
-	uint8_t type;
+        uint8_t type;
 
-	fd_set readfds;
-	struct timeval timeout;
+        fd_set readfds;
+        struct timeval timeout;
 
-	timeout.tv_usec = 100000;
-	timeout.tv_sec  = 0;
+        timeout.tv_usec = 100000;
+        timeout.tv_sec  = 0;
 
-	FD_ZERO(&readfds);
-	FD_SET(s, &readfds);
+        FD_ZERO(&readfds);
+        FD_SET(s, &readfds);
 
-	int ready = select(s+1, &readfds, NULL, NULL, &timeout);
+        int ready = select(s+1, &readfds, NULL, NULL, &timeout);
 
-	if (ready == 0) {
-	    continue ;
-	} else if (ready == -1) {
-	    LOG_ERR("%s: Error on select ()",__func__);
-	}
+        if (ready == 0) {
+            continue ;
+        } else if (ready == -1) {
+            LOG_ERR("%s: Error on select ()",__func__);
+        }
 
-	if((len = recvfrom(s, &request.hdr, sizeof(request.hdr), 0, (struct sockaddr *)&client_sock, &slen)) < DHCP_HEADER_SIZE + 5) {
-	    continue; // TODO: check the magic number 300
-	}
+        if((len = recvfrom(s, &request.hdr, sizeof(request.hdr), 0, (struct sockaddr *)&client_sock, &slen)) < DHCP_HEADER_SIZE + 5) {
+            continue; // TODO: check the magic number 300
+        }
 
-	if(request.hdr.op != BOOTREQUEST)
-	    continue;
-	
-	printk("%s.%u: request received 1\n",str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port));
-	if((type = expand_request(&request, len)) == 0) {
-	    log_error("%s.%u: invalid request received",
-		      str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port));
-	    continue;
-	}
-	printk("%s.%u: request received 2\n",str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port));
-	init_reply(&request, &reply);
-	printk("type:%d\n",type);
-	switch (type) {
+        if(request.hdr.op != BOOTREQUEST)
+            continue;
 
-	case DHCP_DISCOVER:
-            type = serve_dhcp_discover(&request, &reply);
-	    break;
+        if((type = dhcpd4_expand_request(&request, len)) == 0) {
+            log_error("%s.%u: invalid request received",
+                  str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port));
+            continue;
+        }
+        dhcpd4_init_reply(&request, &reply);
+        switch (type) {
 
-	case DHCP_REQUEST:
-	    type = serve_dhcp_request(&request, &reply);
-	    break;
-	    
-	case DHCP_DECLINE:
-	    type = serve_dhcp_decline(&request, &reply);
-	    break;
-	    
-	case DHCP_RELEASE:
-	    type = serve_dhcp_release(&request, &reply);
-	    break;
-	    
-	case DHCP_INFORM:
-	    type = serve_dhcp_inform(&request, &reply);
-	    break;
-	    
-	default:
-	    printk("%s.%u: request with invalid DHCP message type option 0x%02x\n",
-		   str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port),type);
-	    break;
-	
-	}
+        case DHCP_DISCOVER:
+                type = dhcpd4_serve_dhcp_discover(&request, &reply);
+            break;
 
-	if(type != 0) {
-	    printk("AAA1\n");
-	    send_dhcp_reply(s, &client_sock, &reply);
-	    printk("AAA2\n");
-	}
-	delete_option_list(&request.opts);
-	printk("AAA3\n");
-	delete_option_list(&reply.opts);
-	printk("AAA4\n");
+        case DHCP_REQUEST:
+            type = dhcpd4_serve_dhcp_request(&request, &reply);
+            break;
+
+        case DHCP_DECLINE:
+            type = dhcpd4_serve_dhcp_decline(&request, &reply);
+            break;
+
+        case DHCP_RELEASE:
+            type = dhcpd4_serve_dhcp_release(&request, &reply);
+            break;
+
+        case DHCP_INFORM:
+            type = dhcpd4_serve_dhcp_inform(&request, &reply);
+            break;
+
+        default:
+            LOG_ERR("%s.%u: request with invalid DHCP message type option 0x%02x",
+               str_ip(client_sock.sin_addr.s_addr), ntohs(client_sock.sin_port),type);
+            break;
+        }
+
+        if(type != 0) {
+            dhcpd4_send_dhcp_reply(&reply);
+        }
+        dhcpd4_delete_option_list(&request.opts);
+        dhcpd4_delete_option_list(&reply.opts);
 
     }
 
 }
-extern int net_ipv4_create_full(struct net_pkt *pkt,
-				const struct in_addr *src,
-				const struct in_addr *dst,
-				uint8_t tos,
-				uint16_t id,
-				uint8_t flags,
-				uint16_t offset,
-				uint8_t ttl);
 
-static void
-dhcpd4_task (bool *stop, void *p2, void *p3)
+static void dhcpd4_task (bool *stop, void *p2, void *p3)
 {
     ARG_UNUSED(p2);
     ARG_UNUSED(p3);
@@ -632,8 +530,8 @@ dhcpd4_task (bool *stop, void *p2, void *p3)
      LOG_INF("dhcpd4 server: listening on %d", ntohs(server_sock.sin_port));
 
      /* Message processing loop */
-     
-     message_dispatcher(s, stop);
+
+     dhcpd4_message_dispatcher(s, stop);
 
      close(s);
      LOG_INF("dpcpd4 finished");
@@ -649,47 +547,47 @@ static bool dhcpd4_task_stop = false;
 int dhcpd4_start(struct net_if *iface)
 {
 
-     address_pool * pool = get_pool();
+     address_pool * dhcpd4_addr_pool = dhcpd4_get_pool();
 
      if (dhcpd4_tid) {
 	 LOG_ERR("dhcpd4 already started.");
 	 return -1;
      }
 
-     memset(pool, 0, sizeof(*pool));
-     init_binding_list(&pool->bindings);
-     init_option_list(&pool->options);
+     memset(dhcpd4_addr_pool, 0, sizeof(*dhcpd4_addr_pool));
+     dhcpd4_init_binding_list(&dhcpd4_addr_pool->bindings);
+     dhcpd4_init_option_list(&dhcpd4_addr_pool->options);
 
      if (!iface) {
-	 if (pool->device_index < 0) {
+	 if (dhcpd4_addr_pool->device_index < 0) {
 	    iface=net_if_get_default();
 	 }
      }
-     pool->device_index=net_if_get_by_iface(iface);
+     dhcpd4_addr_pool->device_index=net_if_get_by_iface(iface);
 
-     if (TAILQ_EMPTY(&(pool->options))) {
+     if (TAILQ_EMPTY(&(dhcpd4_addr_pool->options))) {
 	 int result = 0;
-	 result += parse_and_add_option(pool, "BROADCAST_ADDRESS","192.168.2.255");
-	 result += parse_and_add_option(pool, "SUBNET_MASK","255.255.255.0");
+	 result += dhcpd4_parse_and_add_option(dhcpd4_addr_pool, "BROADCAST_ADDRESS", "192.168.2.255");
+	 result += dhcpd4_parse_and_add_option(dhcpd4_addr_pool, "SUBNET_MASK", "255.255.255.0");
 	 if (result){
-	    LOG_ERR("dhcpd not started. parse_and_add_option error");
+	    LOG_ERR("dhcpd not started. dhcpd4_parse_and_add_option error");
 	    return 0;
 	 }
 
 	 uint32_t *first = NULL, *last=NULL;
-	 parse_ip ("192.168.2.2", (void**)&first);
-	 parse_ip ("192.168.2.254", (void**)&last);
+	 dhcpd4_parse_ip("192.168.2.2", (void **)&first);
+	 dhcpd4_parse_ip("192.168.2.254", (void **)&last);
 	 if (first && last) {
-	    pool->indexes.first = *first;
-	    pool->indexes.last = *last;
-	    pool->indexes.current = *first;
+	    dhcpd4_addr_pool->indexes.first = *first;
+	    dhcpd4_addr_pool->indexes.last = *last;
+	    dhcpd4_addr_pool->indexes.current = *first;
 	 }
-	 dhcp4_free(first);
-	 dhcp4_free(last);
+	 dhcpd4_free(first);
+	 dhcpd4_free(last);
      }
 
-     if (pool->device_index>0) {
-	 pool->server_id=iface->config.ip.ipv4->unicast[0].address.in_addr.s_addr;
+     if (dhcpd4_addr_pool->device_index>0) {
+	 dhcpd4_addr_pool->server_id=iface->config.ip.ipv4->unicast[0].address.in_addr.s_addr;
 	 dhcpd4_task_stop = false;
 	 dhcpd4_tid = k_thread_create(&dhcpd4_task_thread_data, dhcpd4_task_stk,
 			 K_THREAD_STACK_SIZEOF(dhcpd4_task_stk), (k_thread_entry_t)dhcpd4_task,
@@ -709,61 +607,41 @@ int dhcpd4_stop(void) {
      dhcpd4_task_stop = true;
      k_thread_join(&dhcpd4_task_thread_data, K_FOREVER);
      dhcpd4_tid=NULL;
-     LOG_ERR("dhcpd thread joined");
+     LOG_WRN("dhcpd thread joined");
      return 0;
 }
 
 
-#include <zephyr/net/net_core.h>
-#include <zephyr/net/net_pkt.h>
-#include <zephyr/net/net_if.h>
-#include <zephyr/net/net_mgmt.h>
-
-
-#define DHCPV4_SERVER_PORT	67
-#define DHCPV4_CLIENT_PORT	68
-
-
-int net_ipv4_create(struct net_pkt *pkt,
-		    const struct in_addr *src,
-		    const struct in_addr *dst);
-
-int net_udp_create(struct net_pkt *pkt, uint16_t src_port, uint16_t dst_port);
-
-int net_ipv4_finalize(struct net_pkt *pkt, uint8_t next_header_proto);
-
-struct net_pkt *dhcpdv4_create_message(struct net_if *iface,
+struct net_pkt *dhcpd4_create_message(struct net_if *iface,
 				       const struct in_addr *src,
 				       const struct in_addr *dst,
 				       uint8_t * data,
 				       size_t size){
-     LOG_HEXDUMP_INF(data, size, "dhcpd reply");
      NET_PKT_DATA_ACCESS_DEFINE(dhcp_access, struct dhcpd_msg);
      const struct in_addr *addr;
      struct net_pkt *pkt;
 
      if (src == NULL) {
-	 addr = net_ipv4_unspecified_address();
+	    addr = net_ipv4_unspecified_address();
      } else {
-	 addr = src;
+	    addr = src;
      }
 
      pkt = net_pkt_alloc_with_buffer(iface, size, AF_INET,
 				     IPPROTO_UDP, K_FOREVER);
+     if (!pkt) {
+	    goto fail;
+     }
 
      net_pkt_set_ipv4_ttl(pkt, 0xFF);
 
      if (net_ipv4_create(pkt, addr, dst) ||
-	 net_udp_create(pkt, htons(DHCPV4_SERVER_PORT),
+	    net_udp_create(pkt, htons(DHCPV4_SERVER_PORT),
 			htons(DHCPV4_CLIENT_PORT))) {
-	 goto fail;
+	    goto fail;
      }
 
-     dhcpd_msg *msg = net_pkt_get_data(pkt, &dhcp_access);
-
-     (void)msg;
-     //memmove(msg, data, size);
-
+     net_pkt_get_data(pkt, &dhcp_access);
 
      net_pkt_write(pkt,data, size);
 
@@ -774,7 +652,7 @@ struct net_pkt *dhcpdv4_create_message(struct net_if *iface,
      return pkt;
 
 fail:
-     NET_DBG("Message creation failed");
+     LOG_ERR("Message creation failed");
      net_pkt_unref(pkt);
 
      return NULL;

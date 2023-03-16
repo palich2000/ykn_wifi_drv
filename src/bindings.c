@@ -1,7 +1,5 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(dhcp4server, LOG_LEVEL_DBG);
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <arpa/inet.h>
@@ -13,14 +11,15 @@ LOG_MODULE_DECLARE(dhcp4server, LOG_LEVEL_DBG);
 #pragma GCC diagnostic error "-Wall"
 #pragma GCC diagnostic error "-Wextra"
 #pragma GCC diagnostic error "-Wunused"
+#pragma GCC diagnostic error "-Wint-conversion"
+#pragma GCC diagnostic error "-Wincompatible-pointer-types"
 
 
 /*
  * Initialize the binding list.
  */
 
-void
-init_binding_list (binding_list *list)
+void dhcpd4_init_binding_list(binding_list *list)
 {
     LIST_INIT(list);
 }
@@ -32,13 +31,12 @@ init_binding_list (binding_list *list)
  * and a pointer to the binding is returned for further manipulations.
  */
 
-address_binding *
-add_binding (binding_list *list, uint32_t address,
+address_binding *dhcpd4_add_binding(binding_list *list, uint32_t address,
 	     uint8_t *cident, uint8_t cident_len, int is_static)
 {
     // fill binding
 
-    address_binding *binding = dhcp4_calloc(1, sizeof(*binding));
+    address_binding *binding = dhcpd4_calloc(1, sizeof(*binding));
 
     binding->address = address;
     binding->cident_len = cident_len;
@@ -58,8 +56,7 @@ add_binding (binding_list *list, uint32_t address,
  * expired bindings.
  */
 
-void
-update_bindings_statuses (binding_list *list)
+void dhcpd4_update_bindings_statuses(binding_list *list)
 {
     address_binding *binding, *binding_temp;
     
@@ -78,8 +75,7 @@ update_bindings_statuses (binding_list *list)
  * status will be searched.
  */
 
-address_binding *
-search_binding (binding_list *list, uint8_t *cident, uint8_t cident_len,
+address_binding *dhcpd4_search_binding(binding_list *list, uint8_t *cident, uint8_t cident_len,
 		int is_static, int status)
 {
     address_binding *binding, *binding_temp;
@@ -106,8 +102,7 @@ search_binding (binding_list *list, uint8_t *cident, uint8_t cident_len,
  * If a zero address is returned, no more address are available.
  */
 
-static uint32_t
-take_free_address (pool_indexes *indexes)
+static uint32_t dhcpd4_take_free_address(pool_indexes *indexes)
 {
     if(indexes->current <= indexes->last) {
 
@@ -129,8 +124,7 @@ take_free_address (pool_indexes *indexes)
  * If the dynamic pool of addresses is full a NULL pointer will be returned.
  */
 
-address_binding *
-new_dynamic_binding (binding_list *list, pool_indexes *indexes, uint32_t address,
+address_binding *dhcpd4_new_dynamic_binding(binding_list *list, pool_indexes *indexes, uint32_t address,
 		     uint8_t *cident, uint8_t cident_len)
 {
     address_binding *binding, *binding_temp;
@@ -163,10 +157,10 @@ new_dynamic_binding (binding_list *list, pool_indexes *indexes, uint32_t address
            (we do not support this last case and just return the next
            available address!). */
 
-	uint32_t address = take_free_address(indexes);
+	uint32_t address = dhcpd4_take_free_address(indexes);
 
 	if(address != 0)
-	    return add_binding(list, address, cident, cident_len, 0);
+	    return dhcpd4_add_binding(list, address, cident, cident_len, 0);
 
 	else { // search any previously assigned address which is expired
     

@@ -8,7 +8,7 @@
 
 #define USAGE_TXT							\
     NAME " - " VERSION "\n"						\
-    "usage: [-a first,last] [-d device] [-o opt,value]\n"		\
+    "dhcpd4_usage: [-a first,last] [-d device] [-o opt,value]\n"		\
     "       [-p time] [-s mac,ip] server_address\n"
 
 /* 
@@ -24,4 +24,4 @@
 
 //void usage(char *msg, int exit_status);
 //void parse_args(int argc, char *argv[], address_pool *pool);
-int parse_and_add_option(address_pool *pool, char * name, char * value);
+int dhcpd4_parse_and_add_option(address_pool *pool, char * name, char * value);

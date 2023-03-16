@@ -67,14 +67,14 @@ typedef struct binding_list_ binding_list;
  * Prototypes
  */
 
-void init_binding_list (binding_list *list);
+void dhcpd4_init_binding_list(binding_list *list);
 
-address_binding *add_binding (binding_list *list, uint32_t address, uint8_t *cident, uint8_t cident_len, int is_static);
-void remove_binding (address_binding *binding);
+address_binding *dhcpd4_add_binding(binding_list *list, uint32_t address, uint8_t *cident, uint8_t cident_len, int is_static);
+void dhcpd4_remove_binding (address_binding *binding); //TODO
 
-void update_bindings_statuses (binding_list *list);
+void dhcpd4_update_bindings_statuses(binding_list *list);
 
-address_binding *search_binding (binding_list *list, uint8_t *cident, uint8_t cident_len, int is_static, int status);
-address_binding *new_dynamic_binding (binding_list *list, pool_indexes *indexes, uint32_t address, uint8_t *cident, uint8_t cident_len);
+address_binding *dhcpd4_search_binding(binding_list *list, uint8_t *cident, uint8_t cident_len, int is_static, int status);
+address_binding *dhcpd4_new_dynamic_binding(binding_list *list, pool_indexes *indexes, uint32_t address, uint8_t *cident, uint8_t cident_len);
 
 #endif

@@ -146,26 +146,26 @@ typedef struct dhcp_option_list_ dhcp_option_list;
  * on error return zero.
  */
 
-int parse_byte (char *s, void **p);
-int parse_byte_list (char *s, void **p);
-int parse_short (char *s, void **p);
-int parse_short_list (char *s, void **p);
-int parse_long (char *s, void **p);
-int parse_string (char *s, void **p);
-int parse_ip (char *s, void **p);
-int parse_ip_list (char *s, void **p);
-int parse_mac (char *s, void **p);
+int dhcpd4_parse_byte(char *s, void **p);
+int dhcpd4_parse_byte_list(char *s, void **p);
+int dhcpd4_parse_short(char *s, void **p);
+int dhcpd4_parse_short_list(char *s, void **p);
+int dhcpd4_parse_long(char *s, void **p);
+int dhcpd4_parse_string(char *s, void **p);
+int dhcpd4_parse_ip(char *s, void **p);
+int dhcpd4_parse_ip_list(char *s, void **p);
+int dhcpd4_parse_mac(char *s, void **p);
 
 /* Other prototypes */
 
-void init_option_list (dhcp_option_list *list);
-uint8_t parse_option (dhcp_option *option, char *name, char *value);
-dhcp_option * search_option (dhcp_option_list *list, uint8_t id);
-void print_options (dhcp_option_list *list);
-int append_option (dhcp_option_list *list, dhcp_option *opt);
-void option_free(dhcp_option ** option);
-int parse_options_to_list (dhcp_option_list *list, dhcp_option *opts, size_t len);
-size_t serialize_option_list (dhcp_option_list *list, uint8_t *buf, size_t len);
-void delete_option_list (dhcp_option_list *list);
+void dhcpd4_init_option_list(dhcp_option_list *list);
+uint8_t dhcpd4_parse_option(dhcp_option *option, char *name, char *value);
+dhcp_option *dhcpd4_search_option(dhcp_option_list *list, uint8_t id);
+void dhcpd4_print_options(dhcp_option_list *list);
+int dhcpd4_append_option(dhcp_option_list *list, dhcp_option *opt);
+void dhcpd4_option_free(dhcp_option ** option);
+int dhcpd4_parse_options_to_list(dhcp_option_list *list, dhcp_option *opts, size_t len);
+size_t dhcpd4_serialize_option_list(dhcp_option_list *list, uint8_t *buf, size_t len);
+void dhcpd4_delete_option_list(dhcp_option_list *list);
 
 #endif

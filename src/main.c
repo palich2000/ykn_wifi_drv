@@ -23,8 +23,8 @@ LOG_MODULE_REGISTER(wfm200test, LOG_LEVEL_DBG);
 #include <mbedtls/md.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/ccm.h>
-#include "arpa/inet.h"
-#include "dhcpserver.h"
+#include <arpa/inet.h>
+#include <dhcpd.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic error "-Wall"

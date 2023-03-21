@@ -190,7 +190,7 @@
 	location-rmii_rxd1   = <GECKO_LOCATION(1) GECKO_PORT_F GECKO_PIN(9)>;
 	location-rmii_rx_er  = <GECKO_LOCATION(1) GECKO_PORT_D GECKO_PIN(12)>;
 
-	status = "disabled";
+	status = "okay";
 };
 
 &flash0 {
@@ -223,6 +223,3 @@
 &wifi0 {
 	status = "okay";
 };
-
-
-
